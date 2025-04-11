@@ -1,44 +1,82 @@
-# vibe-debug Extension
+```markdown
+# 🧠 vibe-debug — VSCode Extension
 
-An Extension that lets you generate complete contexts for your codebase, helping with debugging via LLMs.
-
-## Features
-
-- Extracts tech stack, project goal, directory structure, module interactions, and error context.
-- Outputs JSON to clipboard and VS Code output channel.
-- Trigger via right-click or command palette (`Generate Debug Context`).
-
-## Requirements
-
-- VS Code 1.85.0 or higher.
-- Node.js 16 or higher.
-
-## Extension Settings
-
-No settings required.
-
-## Known Issues
-
-- Git integration not implemented yet.
-
-## Release Notes
-
-### 0.0.1
-
-Initial release with context extraction for Node.js and Python projects.
+**vibe-debug** generates a complete, structured snapshot of your workspace to help LLMs or humans debug your code faster.
 
 ---
 
-**Install**
+## ✨ Features
 
-1. Open VS Code.
-2. Go to Extensions view.
-3. Install from VSIX or search `vibe-debug` (once published).
+- 🧰 Extracts:
+  - **Tech Stack** (Node.js, Python)
+  - **Project Goal** (via prompt)
+  - **Directory Structure** (up to 3 levels)
+  - **Module Interactions** (via static analysis)
+  - **Error Context** (based on active cursor)
+  - **Runtime Environment**
+- 📤 Outputs JSON to:
+  - VSCode Output panel
+  - System Clipboard
+- ⚡ Quick trigger via Command Palette (`Generate Debug Context`)
 
-**Contributing**
+---
 
-Feel free to open issues or PRs on GitHub (once repo is set up).
+## 📦 Requirements
 
-**License**
+- **VS Code** `1.85.0+`
+- **Node.js** `v16+`
 
-MIT
+---
+
+## 🔧 Extension Settings
+
+None required.
+
+---
+
+## 🐞 Known Issues
+
+- `git`-based recent changes are not yet implemented.
+- JSX/TSX files aren't fully parsed (planned fix via Babel parser).
+
+---
+
+## 🚀 Install
+
+1. Open **VS Code**
+2. Go to Extensions View (`Ctrl+Shift+X`)
+3. Install via:
+   - **Search**: `vibe-debug` *(after publishing)*
+   - or **Manual**: `Install from VSIX...`
+
+---
+
+## 🧪 Release Notes
+
+### v0.0.1
+- Initial release
+- Full context extraction for Node.js and Python projects
+- JSON output and clipboard support
+
+---
+
+## 🤝 Contributing
+
+We welcome PRs, issues, and ideas!  
+Stay tuned for GitHub link.
+
+To run locally:
+
+```bash
+git clone https://github.com/YOUR_USERNAME/vibe-debug.git
+cd vibe-debug
+npm install
+npm run compile
+```
+
+---
+
+## 🪪 License
+
+[MIT](./LICENSE)
+```
