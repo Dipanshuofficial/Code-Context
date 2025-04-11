@@ -1,4 +1,3 @@
-```markdown
 # 🧠 vibe-debug — VSCode Extension
 
 **vibe-debug** generates a complete, structured snapshot of your workspace to help LLMs or humans debug your code faster.
@@ -79,4 +78,3 @@ npm run compile
 ## 🪪 License
 
 [MIT](./LICENSE)
-```
