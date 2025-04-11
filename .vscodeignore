@@ -1,0 +1,7 @@
+.vscode/**
+out/**
+src/**
+esbuild.js
+tsconfig.json
+eslint.config.mjs
+vsc-extension-quickstart.md
