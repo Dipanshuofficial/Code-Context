@@ -14,4 +14,3 @@ const IGNORED_DIRS = new Set([
 export function shouldIgnoreDir(dirName: string): boolean {
   return IGNORED_DIRS.has(dirName) || dirName.startsWith(".");
 }
-

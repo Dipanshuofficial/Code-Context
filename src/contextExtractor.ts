@@ -4,7 +4,7 @@ import * as path from "path";
 import { parseModule } from "esprima";
 import type { Program, ImportDeclaration } from "estree";
 import { shouldIgnoreDir } from "./utils/helpers";
-
+import { simpleGit, SimpleGit, CleanOptions } from "simple-git";
 import { parse } from "@babel/parser";
 import traverse from "@babel/traverse";
 
@@ -243,25 +243,64 @@ function getErrorContext(
   };
 }
 
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
-
 async function getRecentChanges(workspace: string): Promise<string> {
+  const git: SimpleGit = simpleGit(workspace, { config: [] });
+
   try {
-    const { stdout } = await execAsync(
-      "git log -n 5 --pretty=format:'%h - %s (%cr)'",
-      {
-        cwd: workspace,
+    // Check if git repo is initialized
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) {
+      return "No git repository initialized in workspace";
+    }
+
+    // Fetch last 3 commits
+    const log = await git.log({ maxCount: 3 });
+    if (!log.all.length) return "No recent commits found";
+
+    // Build output: commit messages and modified files
+    let output = "Recent Commits:\n";
+    for (const commit of log.all) {
+      output += `${commit.hash.slice(0, 7)} - ${commit.message} (${
+        commit.date
+      })\n`;
+
+      // Get modified files for this commit
+      const diff = await git.show([
+        `${commit.hash}`,
+        "--name-only",
+        "--format=",
+      ]);
+      const files = diff
+        .split("\n")
+        .filter((line) => line.trim())
+        .map((file) => `  - ${file}`);
+      if (files.length) {
+        output += "Modified files:\n" + files.join("\n") + "\n";
       }
-    );
-    return stdout.trim() || "No recent commits found";
-  } catch {
-    return "Git log unavailable";
+    }
+
+    // Optional: Diff summary for all changes
+    const includeDiff = false; // Set to true for diff summary
+    if (includeDiff) {
+      const diffSummary = await git.diffSummary(["HEAD^", "HEAD"]);
+      if (diffSummary.files.length) {
+        output += "\nDiff Summary:\n";
+        for (const file of diffSummary.files) {
+          // Only text files have insertions/deletions
+          if ("insertions" in file && "deletions" in file) {
+            output += `${file.file} (+${file.insertions}/-${file.deletions})\n`;
+          } else {
+            output += `${file.file} (binary or status change)\n`;
+          }
+        }
+      }
+    }
+
+    return output.trim() || "No changes detected";
+  } catch (err) {
+    return `Git error: ${(err as Error).message}`;
   }
 }
-
 async function getEnvironment(
   workspace: string
 ): Promise<{ runtime: string; docker?: boolean }> {
