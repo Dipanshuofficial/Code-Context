@@ -1,16 +1,17 @@
-export function shouldIgnoreDir(dirName: string): boolean {
-  const ignorePatterns = [
-    "node_modules",
-    "dist",
-    "build",
-    ".git",
-    ".vscode",
-    ".next",
-    "out",
-    ".turbo",
-    "__pycache__",
-    ".cache",
-  ];
+const IGNORED_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  ".vscode",
+  "out",
+  ".turbo",
+  "__pycache__",
+  ".cache",
+]);
 
-  return ignorePatterns.includes(dirName.toLowerCase());
+export function shouldIgnoreDir(dirName: string): boolean {
+  return IGNORED_DIRS.has(dirName) || dirName.startsWith(".");
 }
+

@@ -4,6 +4,10 @@ import * as path from "path";
 import { parseModule } from "esprima";
 import type { Program, ImportDeclaration } from "estree";
 import { shouldIgnoreDir } from "./utils/helpers";
+
+import { parse } from "@babel/parser";
+import traverse from "@babel/traverse";
+
 interface TechStack {
   node?: {
     dependencies: Record<string, string>;
@@ -114,7 +118,7 @@ async function promptForGoal(): Promise<string> {
     prompt: 'Describe project goal (e.g., "ML model for fraud detection")',
     placeHolder: "Enter goal",
   });
-  return goal ?? "Not provided";
+  return goal ?? "Did Not Specify...";
 }
 
 async function getDirectoryStructure(
@@ -124,9 +128,7 @@ async function getDirectoryStructure(
   const maxDepth = 3;
 
   async function walk(dir: string, depth = 0): Promise<string[]> {
-    if (depth > maxDepth) {
-      return [];
-    }
+    if (depth > maxDepth) return [];
 
     const results: string[] = [];
     let files: string[] = [];
@@ -138,6 +140,8 @@ async function getDirectoryStructure(
     }
 
     for (const file of files) {
+      if (shouldIgnoreDir(file)) continue; // Skip early
+
       const fullPath = path.join(dir, file);
       let stat: fs.Stats | null = null;
 
@@ -147,10 +151,10 @@ async function getDirectoryStructure(
         continue;
       }
 
-      if (stat?.isDirectory() && !shouldIgnoreDir(file)) {
+      if (stat.isDirectory()) {
         results.push(`${file}/`);
         results.push(...(await walk(fullPath, depth + 1)));
-      } else if (stat?.isFile() && fullPath.includes(filePath)) {
+      } else if (stat.isFile() && fullPath.includes(filePath)) {
         results.push(file);
       }
     }
@@ -162,11 +166,9 @@ async function getDirectoryStructure(
 }
 
 async function getModuleInteractions(filePath: string): Promise<string[]> {
-  if (!filePath || !(await fs.pathExists(filePath))) {
-    return ["Not available"];
-  }
+  if (!filePath || !(await fs.pathExists(filePath))) return ["Not available"];
 
-  let code: string = "";
+  let code: string;
   try {
     code = await fs.readFile(filePath, "utf-8");
   } catch {
@@ -174,15 +176,43 @@ async function getModuleInteractions(filePath: string): Promise<string[]> {
   }
 
   try {
-    const ast: Program = parseModule(code, { loc: true });
-    const imports = ast.body
-      .filter(
-        (node): node is ImportDeclaration => node.type === "ImportDeclaration"
-      )
-      .map((node) => `Imports ${node.source.value}`);
-    return imports.length > 0 ? imports : ["No imports detected"];
-  } catch {
-    return ["Unable to parse imports"];
+    const ast = parse(code, {
+      sourceType: "unambiguous",
+      plugins: ["jsx", "typescript", "dynamicImport"],
+    });
+
+    const interactions: string[] = [];
+
+    traverse(ast, {
+      ImportDeclaration(path) {
+        interactions.push(`Static import: ${path.node.source.value}`);
+      },
+      CallExpression(path) {
+        const callee = path.node.callee;
+        if (
+          callee.type === "Import" &&
+          path.node.arguments.length > 0 &&
+          path.node.arguments[0].type === "StringLiteral"
+        ) {
+          interactions.push(`Dynamic import: ${path.node.arguments[0].value}`);
+        } else if (
+          callee.type === "Identifier" &&
+          callee.name === "require" &&
+          path.node.arguments.length > 0 &&
+          path.node.arguments[0].type === "StringLiteral"
+        ) {
+          interactions.push(
+            `CommonJS require: ${path.node.arguments[0].value}`
+          );
+        }
+      },
+    });
+
+    return interactions.length
+      ? interactions
+      : ["No module interactions detected"];
+  } catch (err) {
+    return [`Unable to parse: ${(err as Error).message}`];
   }
 }
 
@@ -213,8 +243,23 @@ function getErrorContext(
   };
 }
 
-async function getRecentChanges(_workspace: string): Promise<string> {
-  return "Git integration not implemented";
+import { exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
+
+async function getRecentChanges(workspace: string): Promise<string> {
+  try {
+    const { stdout } = await execAsync(
+      "git log -n 5 --pretty=format:'%h - %s (%cr)'",
+      {
+        cwd: workspace,
+      }
+    );
+    return stdout.trim() || "No recent commits found";
+  } catch {
+    return "Git log unavailable";
+  }
 }
 
 async function getEnvironment(
