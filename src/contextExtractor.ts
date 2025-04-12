@@ -1,46 +1,20 @@
-import * as vscode from "vscode";
-import * as fs from "fs-extra";
-import * as path from "path";
-import { parseModule } from "esprima";
-import type { Program, ImportDeclaration } from "estree";
-import { shouldIgnoreDir } from "./utils/helpers";
-import { simpleGit, SimpleGit, CleanOptions } from "simple-git";
-import { parse } from "@babel/parser";
-import traverse from "@babel/traverse";
-
-interface TechStack {
-  node?: {
-    dependencies: Record<string, string>;
-    devDependencies: Record<string, string>;
-  };
-  python?: string[];
-}
-
-interface ErrorContext {
-  message: string;
-  line: number;
-  snippet: string;
-}
-
-interface DebugContext {
-  techStack: TechStack;
-  projectGoal: string;
-  directoryStructure: string[];
-  moduleInteractions: string[];
-  errorContext: ErrorContext | string;
-  recentChanges: string;
-  environment: {
-    runtime: string;
-    docker?: boolean;
-  };
-}
+import { TextEditor, workspace, Diagnostic } from "vscode";
+import { DebugContext } from "./types";
+import { getTechStack } from "./modules/techStack";
+import { promptForGoal } from "./modules/projectGoal";
+import { getDirectoryStructure } from "./modules/directoryStructure";
+import { getModuleInteractions } from "./modules/moduleInteractions";
+import { getErrorContext } from "./modules/errorContext";
+import { getRecentChanges } from "./modules/recentChanges";
+import { getEnvironment } from "./modules/environment";
+import { getRuntimeErrorContext } from "./modules/runtimeErrors";
 
 export async function extractContext(
-  editor: vscode.TextEditor | undefined,
-  diagnostics: readonly vscode.Diagnostic[]
+  editor: TextEditor | undefined,
+  diagnostics: readonly Diagnostic[]
 ): Promise<DebugContext> {
-  const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!workspace) {
+  const workspacePath = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspacePath) {
     throw new Error("No workspace found");
   }
 
@@ -53,16 +27,17 @@ export async function extractContext(
     errorContext: "",
     recentChanges: "",
     environment: { runtime: process.version },
+    runtimeErrorContext: { logFileErrors: [] },
   };
 
   await Promise.allSettled([
-    getTechStack(workspace).then((stack) => {
+    getTechStack(workspacePath).then((stack) => {
       context.techStack = stack;
     }),
     promptForGoal().then((goal) => {
       context.projectGoal = goal;
     }),
-    getDirectoryStructure(workspace, filePath).then((structure) => {
+    getDirectoryStructure(workspacePath, filePath).then((structure) => {
       context.directoryStructure = structure;
     }),
     getModuleInteractions(filePath).then((interactions) => {
@@ -71,251 +46,16 @@ export async function extractContext(
     Promise.resolve(getErrorContext(editor, diagnostics)).then((error) => {
       context.errorContext = error;
     }),
-    getRecentChanges(workspace).then((changes) => {
+    getRecentChanges(workspacePath).then((changes) => {
       context.recentChanges = changes;
     }),
-    getEnvironment(workspace).then((env) => {
+    getEnvironment(workspacePath).then((env) => {
       context.environment = env;
+    }),
+    getRuntimeErrorContext(workspacePath).then((runtimeErrors) => {
+      context.runtimeErrorContext = runtimeErrors;
     }),
   ]);
 
   return context;
-}
-
-async function getTechStack(workspace: string): Promise<TechStack> {
-  const stack: TechStack = {};
-  const pkgPath = path.join(workspace, "package.json");
-  const reqPath = path.join(workspace, "requirements.txt");
-
-  try {
-    if (await fs.pathExists(pkgPath)) {
-      const pkg = await fs.readJson(pkgPath).catch(() => ({}));
-      stack.node = {
-        dependencies: pkg.dependencies ?? {},
-        devDependencies: pkg.devDependencies ?? {},
-      };
-    }
-  } catch {
-    // Silent fail
-  }
-
-  try {
-    if (await fs.pathExists(reqPath)) {
-      const reqs = await fs.readFile(reqPath, "utf-8").catch(() => "");
-      stack.python = reqs
-        .split("\n")
-        .filter((line) => line.trim() && !line.startsWith("#"));
-    }
-  } catch {
-    // Silent fail
-  }
-
-  return stack;
-}
-
-async function promptForGoal(): Promise<string> {
-  const goal = await vscode.window.showInputBox({
-    prompt: 'Describe project goal (e.g., "ML model for fraud detection")',
-    placeHolder: "Enter goal",
-  });
-  return goal ?? "Did Not Specify...";
-}
-
-async function getDirectoryStructure(
-  workspace: string,
-  filePath: string
-): Promise<string[]> {
-  const maxDepth = 3;
-
-  async function walk(dir: string, depth = 0): Promise<string[]> {
-    if (depth > maxDepth) return [];
-
-    const results: string[] = [];
-    let files: string[] = [];
-
-    try {
-      files = await fs.readdir(dir);
-    } catch {
-      return results;
-    }
-
-    for (const file of files) {
-      if (shouldIgnoreDir(file)) continue; // Skip early
-
-      const fullPath = path.join(dir, file);
-      let stat: fs.Stats | null = null;
-
-      try {
-        stat = await fs.stat(fullPath);
-      } catch {
-        continue;
-      }
-
-      if (stat.isDirectory()) {
-        results.push(`${file}/`);
-        results.push(...(await walk(fullPath, depth + 1)));
-      } else if (stat.isFile() && fullPath.includes(filePath)) {
-        results.push(file);
-      }
-    }
-
-    return results;
-  }
-
-  return walk(workspace);
-}
-
-async function getModuleInteractions(filePath: string): Promise<string[]> {
-  if (!filePath || !(await fs.pathExists(filePath))) return ["Not available"];
-
-  let code: string;
-  try {
-    code = await fs.readFile(filePath, "utf-8");
-  } catch {
-    return ["Unable to read file"];
-  }
-
-  try {
-    const ast = parse(code, {
-      sourceType: "unambiguous",
-      plugins: ["jsx", "typescript", "dynamicImport"],
-    });
-
-    const interactions: string[] = [];
-
-    traverse(ast, {
-      ImportDeclaration(path) {
-        interactions.push(`Static import: ${path.node.source.value}`);
-      },
-      CallExpression(path) {
-        const callee = path.node.callee;
-        if (
-          callee.type === "Import" &&
-          path.node.arguments.length > 0 &&
-          path.node.arguments[0].type === "StringLiteral"
-        ) {
-          interactions.push(`Dynamic import: ${path.node.arguments[0].value}`);
-        } else if (
-          callee.type === "Identifier" &&
-          callee.name === "require" &&
-          path.node.arguments.length > 0 &&
-          path.node.arguments[0].type === "StringLiteral"
-        ) {
-          interactions.push(
-            `CommonJS require: ${path.node.arguments[0].value}`
-          );
-        }
-      },
-    });
-
-    return interactions.length
-      ? interactions
-      : ["No module interactions detected"];
-  } catch (err) {
-    return [`Unable to parse: ${(err as Error).message}`];
-  }
-}
-
-function getErrorContext(
-  editor: vscode.TextEditor | undefined,
-  diagnostics: readonly vscode.Diagnostic[]
-): ErrorContext | string {
-  if (!editor || diagnostics.length === 0) {
-    return "No errors detected";
-  }
-
-  const error = diagnostics.find((d) =>
-    d.range.contains(editor.selection.active)
-  );
-  if (!error) {
-    return "No error at cursor";
-  }
-
-  const lines = editor.document.getText().split("\n");
-  const start = Math.max(0, error.range.start.line - 5);
-  const end = Math.min(lines.length, error.range.end.line + 5);
-  const snippet = lines.slice(start, end).join("\n");
-
-  return {
-    message: error.message,
-    line: error.range.start.line + 1,
-    snippet,
-  };
-}
-
-async function getRecentChanges(workspace: string): Promise<string> {
-  const git: SimpleGit = simpleGit(workspace, { config: [] });
-
-  try {
-    // Check if git repo is initialized
-    const isRepo = await git.checkIsRepo();
-    if (!isRepo) {
-      return "No git repository initialized in workspace";
-    }
-
-    // Fetch last 3 commits
-    const log = await git.log({ maxCount: 3 });
-    if (!log.all.length) return "No recent commits found";
-
-    // Build output: commit messages and modified files
-    let output = "Recent Commits:\n";
-    for (const commit of log.all) {
-      output += `${commit.hash.slice(0, 7)} - ${commit.message} (${
-        commit.date
-      })\n`;
-
-      // Get modified files for this commit
-      const diff = await git.show([
-        `${commit.hash}`,
-        "--name-only",
-        "--format=",
-      ]);
-      const files = diff
-        .split("\n")
-        .filter((line) => line.trim())
-        .map((file) => `  - ${file}`);
-      if (files.length) {
-        output += "Modified files:\n" + files.join("\n") + "\n";
-      }
-    }
-
-    // Optional: Diff summary for all changes
-    const includeDiff = false; // Set to true for diff summary
-    if (includeDiff) {
-      const diffSummary = await git.diffSummary(["HEAD^", "HEAD"]);
-      if (diffSummary.files.length) {
-        output += "\nDiff Summary:\n";
-        for (const file of diffSummary.files) {
-          // Only text files have insertions/deletions
-          if ("insertions" in file && "deletions" in file) {
-            output += `${file.file} (+${file.insertions}/-${file.deletions})\n`;
-          } else {
-            output += `${file.file} (binary or status change)\n`;
-          }
-        }
-      }
-    }
-
-    return output.trim() || "No changes detected";
-  } catch (err) {
-    return `Git error: ${(err as Error).message}`;
-  }
-}
-async function getEnvironment(
-  workspace: string
-): Promise<{ runtime: string; docker?: boolean }> {
-  const env: { runtime: string; docker?: boolean } = {
-    runtime: process.version,
-  };
-  const dockerPath = path.join(workspace, "Dockerfile");
-
-  try {
-    if (await fs.pathExists(dockerPath)) {
-      env.docker = true;
-    }
-  } catch {
-    // Silent fail
-  }
-
-  return env;
 }

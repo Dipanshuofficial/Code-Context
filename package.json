@@ -16,6 +16,10 @@
       {
         "command": "vibe-debug.generate",
         "title": "Generate Debug Context"
+      },
+      {
+        "command": "extension.pasteTerminalLogs",
+        "title": "Paste Terminal Logs into Context"
       }
     ],
     "menus": {
@@ -25,6 +29,11 @@
           "group": "navigation"
         }
       ]
+    },
+    "keybindings": {
+      "command": "extension.pasteTerminalLogs",
+      "key": "ctrl+shift+l",
+      "mac": "cmd+shift+l"
     }
   },
   "scripts": {
