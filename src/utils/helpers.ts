@@ -1,6 +1,6 @@
-import { readFile, readJson } from "fs-extra";
+import { readFile, readJson, readFileSync } from "fs-extra";
 import { extname, join } from "path";
-
+import ignore from "ignore";
 const IGNORED_DIRS = new Set([
   "node_modules",
   ".git",
@@ -104,4 +104,21 @@ export function formatErrorMessage(err: unknown): string {
 
 export function truncateString(str: string, maxLength: number): string {
   return str.length > maxLength ? `${str.slice(0, maxLength - 3)}...` : str;
+}
+
+export function getGitignore(workspace: string): any {
+  const gitignorePath = join(workspace, ".gitignore");
+  const gitignoreContent = readFileSafeSync(gitignorePath);
+  if (gitignoreContent) {
+    return ignore().add(gitignoreContent.split("\n").filter(Boolean));
+  }
+  return null;
+}
+
+function readFileSafeSync(filePath: string): string {
+  try {
+    return readFileSync(filePath, "utf-8");
+  } catch {
+    return "";
+  }
 }

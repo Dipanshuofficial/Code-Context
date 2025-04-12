@@ -5,7 +5,12 @@ import {
   readFileSafe,
   shouldIgnoreDir,
   truncateString,
+  getGitignore, // Add this
 } from "../utils/helpers";
+import ignore from "ignore";
+
+const logFilesCache = new Map<string, { timestamp: number; files: string[] }>();
+const CACHE_TTL = 60 * 1000;
 
 export async function getRuntimeErrorContext(workspace: string): Promise<{
   logFileErrors: string[];
@@ -35,15 +40,36 @@ export async function getRuntimeErrorContext(workspace: string): Promise<{
 }
 
 export async function findLogFiles(workspace: string): Promise<string[]> {
+  // Check cache
+  const cached = logFilesCache.get(workspace);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.files;
+  }
+
+  // Load .gitignore
+  // Load .gitignore
+  const gitignore = getGitignore(workspace);
+
   const files: string[] = [];
-  async function walk(dir: string): Promise<void> {
+  async function walk(dir: string, relativeDir = ""): Promise<void> {
     try {
+      // Early exit for ignored dirs
+      const dirName = relativeDir.split("/").pop() || dir;
+      if (shouldIgnoreDir(dirName)) return;
+      if (gitignore && relativeDir && gitignore.ignores(relativeDir)) return;
+
       const entries = await readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         const fullPath = join(dir, entry.name);
+        const entryRelativePath = relativeDir
+          ? join(relativeDir, entry.name)
+          : entry.name;
+
+        if (gitignore && gitignore.ignores(entryRelativePath)) continue;
         if (shouldIgnoreDir(entry.name)) continue;
+
         if (entry.isDirectory()) {
-          await walk(fullPath);
+          await walk(fullPath, entryRelativePath);
         } else if (entry.name.endsWith(".log")) {
           files.push(fullPath);
         }
@@ -53,7 +79,9 @@ export async function findLogFiles(workspace: string): Promise<string[]> {
     }
   }
   await walk(workspace);
-  return files;
+  const result = files;
+  logFilesCache.set(workspace, { timestamp: Date.now(), files: result });
+  return result;
 }
 
 export function parseLogErrors(content: string): string[] {
