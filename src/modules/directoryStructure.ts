@@ -5,10 +5,8 @@ import {
   isDebugRelevantFile,
   sortTreeNodes,
   formatTree,
-  readFileSafe,
   getGitignore,
 } from "../utils/helpers";
-import ignore from "ignore"; // For .gitignore parsing
 
 // In-memory cache for directory structures
 const directoryCache = new Map<

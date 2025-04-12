@@ -3,6 +3,10 @@
   "displayName": "vibe-debug",
   "description": "An Extension that lets you generate complete contexts for your codebase.",
   "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dipanshuofficial/vibe-debug.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -65,5 +69,13 @@
     "esbuild": "^0.25.2",
     "eslint": "^8.57.0",
     "typescript": "^5.5.4"
-  }
+  },
+  "license": "MIT",
+  "keywords": [
+  "debug",
+  "context",
+  "codebase",
+  "troubleshoot",
+  "vscode"
+]
 }

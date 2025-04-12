@@ -7,7 +7,6 @@ import {
   truncateString,
   getGitignore, // Add this
 } from "../utils/helpers";
-import ignore from "ignore";
 
 const logFilesCache = new Map<string, { timestamp: number; files: string[] }>();
 const CACHE_TTL = 60 * 1000;
